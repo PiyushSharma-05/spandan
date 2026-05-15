@@ -37,7 +37,7 @@ function JoinRoomPage() {
       const room = await joinRoomByCode(roomCode.trim().toUpperCase())
       setJoinedRoom(room)
       joinRoom(room.code, user._id)
-      navigate(`/session/${room.code}`)
+      navigate(`/student/session/${room.code}`)
     } catch (err) {
       setError(err.message || 'Failed to join room. Please check the code and try again.')
     } finally {
@@ -47,7 +47,7 @@ function JoinRoomPage() {
 
   const handleLeaveRoom = () => {
     if (joinedRoom) {
-      leaveRoom(joinedRoom.code)
+      leaveRoom(joinedRoom.code, user._id)
       setJoinedRoom(null)
     }
   }

@@ -52,9 +52,10 @@ function App() {
         <Route path="/student/join-room" element={<JoinRoomPage />} />
         <Route path="/student/room-history" element={<RoomHistoryPage />} />
         <Route path="/student/profile" element={<ProfilePage />} />
-        <Route path="/room/:roomId" element={<RoomDetailPage />} />
-        <Route path="/room/:roomId/results" element={<RoomResultsPage />} />
-        <Route path="/session/:roomCode" element={<StudentRoomPage />} />
+        <Route path="/teacher/room/:roomId" element={<RoomDetailPage />} />
+        <Route path="/teacher/room/:roomId/results" element={<RoomResultsPage />} />
+        <Route path="/student/room/:roomId/results" element={<RoomResultsPage />} />
+        <Route path="/student/session/:roomCode" element={<StudentRoomPage />} />
       </Routes>
     </BrowserRouter>
   )

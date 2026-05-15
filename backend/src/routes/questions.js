@@ -1,9 +1,13 @@
 import express from 'express'
+import { authenticate, authorize } from '../middleware/auth.js'
 import { generateQuestions, AI_PROVIDERS } from '../services/questionService.js'
 
 const router = express.Router()
 
-// Get available AI providers
+// Apply authentication to all routes
+router.use(authenticate)
+
+// Get available AI providers - accessible by authenticated users
 router.get('/providers', (req, res) => {
   const providers = Object.entries(AI_PROVIDERS).map(([key, value]) => ({
     id: key,
@@ -19,7 +23,8 @@ router.get('/providers', (req, res) => {
 })
 
 // POST /api/questions/generate - Generate questions from transcript
-router.post('/generate', async (req, res) => {
+// Authorization: teacher only
+router.post('/generate', authorize('teacher'), async (req, res) => {
   try {
     const { transcript, config } = req.body
     const { 
@@ -59,7 +64,8 @@ router.post('/generate', async (req, res) => {
 })
 
 // Create a question (for manual creation)
-router.post('/', async (req, res) => {
+// Authorization: teacher only
+router.post('/', authorize('teacher'), async (req, res) => {
   try {
     const { authenticate } = await import('../middleware/auth.js')
     // Simple auth check
@@ -119,6 +125,19 @@ router.get('/', async (req, res) => {
     }
 
     const Question = (await import('../models/Question.js')).default
+    const Room = (await import('../models/Room.js')).default
+    const RoomMember = (await import('../models/RoomMember.js')).default
+    const currentUser = req.user
+
+    // Check access: teacher owns room OR student is member
+    const room = await Room.findById(roomId)
+    const isTeacher = room && room.teacher.toString() === currentUser._id.toString()
+    const isStudentMember = await RoomMember.findOne({ roomId, studentId: currentUser._id })
+
+    if (!isTeacher && !isStudentMember) {
+      return res.status(403).json({ error: 'Not authorized to access questions for this room' })
+    }
+
     const questions = await Question.find({ roomId }).sort({ createdAt: -1 }).lean()
     
     res.json({

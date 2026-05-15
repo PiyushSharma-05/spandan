@@ -96,7 +96,7 @@ function ManageRoomPage() {
                   </div>
                   <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
                     <button
-                      onClick={() => navigate(`/room/${room._id}`)}
+                      onClick={() => navigate(`/teacher/room/${room._id}`)}
                       style={{
                         flex: 1,
                         padding: '10px 12px',

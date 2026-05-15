@@ -31,7 +31,19 @@ const roomSchema = new mongoose.Schema({
   settings: {
     allowLateJoin: { type: Boolean, default: true },
     showResultsImmediately: { type: Boolean, default: true },
-    requireCorrectAnswer: { type: Boolean, default: false }
+    requireCorrectAnswer: { type: Boolean, default: false },
+    // Quiz settings
+    timeToAnswer: { type: Number, default: 30 },
+    points: { type: Number, default: 100 },
+    segmentTime: { type: Number, default: 2 },
+    questionsPerSegment: { type: Number, default: 2 },
+    difficulty: { type: String, default: 'medium' },
+    questionProvider: { type: String, default: 'minimax' },
+    questionTypeMix: {
+      MCQ: { type: Number, default: 50 },
+      TF: { type: Number, default: 30 },
+      MSQ: { type: Number, default: 20 }
+    }
   },
   createdAt: {
     type: Date,

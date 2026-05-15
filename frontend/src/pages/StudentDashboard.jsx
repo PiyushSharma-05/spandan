@@ -57,7 +57,7 @@ function StudentDashboard() {
       // Then join via socket
       joinRoom(room.code, user._id)
       // Then navigate to session
-      navigate(`/session/${room.code}`)
+      navigate(`/student/session/${room.code}`)
     } catch (err) {
       console.error('Failed to join room:', err)
     } finally {

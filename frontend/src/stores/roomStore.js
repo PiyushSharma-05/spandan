@@ -37,6 +37,31 @@ export const useRoomStore = create((set, get) => ({
     }
   },
 
+  fetchStudentRoomHistory: async () => {
+    const { authToken } = get()
+    if (!authToken) return
+
+    set({ isLoading: true, error: null })
+    try {
+      const response = await fetch(`${API_URL}/rooms/student/room-history`, {
+        headers: { 
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch room history')
+      }
+
+      set({ rooms: data.rooms || [], isLoading: false })
+    } catch (error) {
+      set({ error: error.message, isLoading: false })
+    }
+  },
+
   createRoom: async (name, settings = {}) => {
     const { authToken } = get()
     if (!authToken) throw new Error('Not authenticated')

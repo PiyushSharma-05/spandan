@@ -1,5 +1,6 @@
 import Room from '../models/Room.js'
 import Question from '../models/Question.js'
+import RoomMember from '../models/RoomMember.js'
 
 export const createRoom = async (name, teacherId, settings = {}) => {
   const room = new Room({
@@ -95,4 +96,29 @@ export const deactivateRoom = async (roomId) => {
   }
   
   return room
+}
+
+export const getRoomsByStudent = async (studentId) => {
+  // Find all rooms the student has attended (via RoomMember)
+  const memberships = await RoomMember.find({ studentId }).populate('roomId')
+  
+  // Extract rooms and filter out any null ones
+  const rooms = memberships
+    .filter(m => m.roomId)
+    .map(m => m.roomId)
+    
+  // Get question counts for each room
+  const roomIds = rooms.map(r => r._id)
+  const questionCounts = await Question.aggregate([
+    { $match: { roomId: { $in: roomIds } } },
+    { $group: { _id: '$roomId', count: { $sum: 1 } } }
+  ])
+  
+  const countMap = new Map(questionCounts.map(q => [q._id.toString(), q.count]))
+  
+  // Attach questionCount to each room and sort by most recent
+  return rooms.map(room => ({
+    ...room.toObject(),
+    questionCount: countMap.get(room._id.toString()) || 0
+  })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 }

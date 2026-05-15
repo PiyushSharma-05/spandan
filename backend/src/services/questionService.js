@@ -10,13 +10,15 @@ export { AI_PROVIDERS }
 
 export const createQuestion = async (data, createdBy) => {
   const question = new Question({
+    roomId: data.roomId,  // Use roomId to match Question model
     question: data.question,
     options: data.options,
-    correctOptionIndex: data.correctOptionIndex,
-    room: data.roomId,
-    createdBy,
-    source: data.source || 'manual',
-    timer: data.timer || 30
+    type: data.type || 'MCQ',
+    status: data.status || 'pending',  // pending for manual, approved for AI
+    segmentIndex: data.segmentIndex || 0,
+    timeToAnswer: data.timer || data.timeToAnswer || 30,
+    points: data.points || 100,
+    createdBy
   })
 
   await question.save()
@@ -297,8 +299,22 @@ function parseQuestions(responseText, expectedTypes) {
 // Parse options ensuring correct structure
 function parseOptions(options, type) {
   if (type === 'TF') {
+    // For True/False, use AI-provided options if valid
+    if (Array.isArray(options) && options.length === 2) {
+      const trueIdx = options.findIndex(o => (o.text || '').toLowerCase().startsWith('true'))
+      const falseIdx = options.findIndex(o => (o.text || '').toLowerCase().startsWith('false'))
+      
+      if (trueIdx !== -1 && falseIdx !== -1) {
+        // Return with correct marking preserved
+        return [
+          { text: 'True', isCorrect: !!options[trueIdx].isCorrect },
+          { text: 'False', isCorrect: !!options[falseIdx].isCorrect }
+        ]
+      }
+    }
+    // Default TF - mark first as correct if AI didn't specify
     return [
-      { text: 'True', isCorrect: false },
+      { text: 'True', isCorrect: true },
       { text: 'False', isCorrect: false }
     ]
   }

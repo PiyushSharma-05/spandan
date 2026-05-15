@@ -38,7 +38,9 @@ function RoomResultsPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       const roomData = await roomRes.json()
-      setRoom(roomData.room || roomData)
+      if (roomRes.ok) {
+        setRoom(roomData.room || roomData)
+      }
 
       // Fetch questions for this room
       const qRes = await fetch(`/api/questions?roomId=${roomId}`, {
@@ -46,37 +48,96 @@ function RoomResultsPage() {
       })
       const qData = await qRes.json()
       const roomQuestions = qData.questions || []
-      setQuestions(roomQuestions)
 
-      // Fetch responses for each question
-      const responsesData = {}
-      let totalResponses = 0
-      let totalCorrect = 0
-
-      for (const q of roomQuestions) {
+      if (user?.role === 'student') {
+        // Student: fetch their own responses (includes questions with answers)
+        const studentRes = await fetch(`/api/responses/room/${roomId}/student/${user._id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        const studentData = await studentRes.json()
+        
+        // Use studentData.questions for rendering (has answered, isCorrect, pointsEarned, etc.)
+        setQuestions(studentData.questions || [])
+        
+        // Build responses data from student's question data
+        const responsesData = {}
+        let totalResponses = 0
+        let totalCorrect = 0
+        let totalPoints = 0
+        
+        studentData.questions?.forEach(q => {
+          if (q.answered) {
+            responsesData[q._id] = {
+              totalResponses: 1,
+              correctCount: q.isCorrect ? 1 : 0,
+              points: q.pointsEarned || 0
+            }
+            totalResponses += 1
+            if (q.isCorrect) totalCorrect += 1
+            totalPoints += q.pointsEarned || 0
+          }
+        })
+        
+        setResponses(responsesData)
+        
+        // Fetch leaderboard to get student's rank
+        const leaderboardRes = await fetch(`/api/responses/leaderboard/${roomId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        const leaderboardData = await leaderboardRes.json()
+        const userRank = leaderboardData.userRank || 0
+        
+        const averageScore = totalResponses > 0 ? Math.round((totalPoints / (totalResponses * 100)) * 100) : 0
+        
+        setStats({
+          totalResponses,
+          totalCorrect,
+          averageScore,
+          participationRate: 100,
+          userRank,
+          totalPoints
+        })
+      } else {
+        // Teacher: set questions from API
+        setQuestions(roomQuestions)
+        
+        // Teacher: fetch full room stats once
         const rRes = await fetch(`/api/responses/stats/room/${roomId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
         const rData = await rRes.json()
-        responsesData[q._id] = rData.stats || {}
-        totalResponses += rData.stats?.totalResponses || 0
-        totalCorrect += rData.stats?.correctCount || 0
-      }
-      
-      setResponses(responsesData)
-      
-      // Calculate overall stats
-      const averageScore = totalResponses > 0 ? Math.round((totalCorrect / totalResponses) * 100) : 0
-      const participationRate = roomQuestions.length > 0 
-        ? Math.round((totalResponses / (roomQuestions.length * 10)) * 100) // Assuming ~10 students per question
-        : 0
+        
+        // Build responsesData from questionStats
+        const responsesData = {}
+        const questionStats = rData.stats?.questionStats || []
+        
+        questionStats.forEach(qStat => {
+          responsesData[qStat.questionId] = {
+            totalResponses: qStat.totalResponses,
+            correctCount: qStat.correctCount || 0,
+            answerCounts: qStat.answerCounts || {}
+          }
+        })
+        
+        setResponses(responsesData)
+        
+        // Calculate overall stats from aggregated data
+        const totalResponses = rData.stats?.totalResponses || 0
+        const totalCorrect = questionStats.reduce((sum, q) => sum + (q.correctCount || 0), 0)
+        const averageScore = totalResponses > 0 ? Math.round((totalCorrect / totalResponses) * 100) : 0
+        const uniqueStudents = rData.stats?.totalStudents || 0
+        const participationRate = roomQuestions.length > 0 
+          ? Math.round((uniqueStudents / Math.max(roomQuestions.length, 1)) * 100)
+          : 0
 
-      setStats({
-        totalResponses,
-        totalCorrect,
-        averageScore,
-        participationRate: Math.min(participationRate, 100)
-      })
+        setStats({
+          totalResponses,
+          totalCorrect,
+          averageScore,
+          totalStudents: uniqueStudents,
+          participationRate: Math.min(participationRate, 100)
+        })
+      }
     } catch (err) {
       console.error('Failed to fetch room results:', err)
     } finally {
@@ -145,6 +206,26 @@ function RoomResultsPage() {
 
         {/* Content */}
         <div style={{ flex: 1, padding: '32px' }}>
+          {/* Back Button */}
+          <button
+            onClick={() => navigate(`/${user?.role === 'teacher' ? 'teacher' : 'student'}/room-history`)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '8px 12px',
+              background: 'transparent',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              cursor: 'pointer',
+              marginBottom: '20px'
+            }}
+          >
+            ←
+          </button>
+          
           {/* Overview Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
             <div style={{
@@ -218,9 +299,12 @@ function RoomResultsPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {questions.map((q, index) => {
                   const qStats = responses[q._id] || {}
-                  const correctRate = qStats.totalResponses > 0 
+                  const isTeacher = user?.role === 'teacher'
+                  
+                  // Teacher: show class percentage. Student: show their result
+                  const correctRate = isTeacher && qStats.totalResponses > 0 
                     ? Math.round((qStats.correctCount / qStats.totalResponses) * 100) 
-                    : 0
+                    : q.answered ? (q.isCorrect ? 100 : 0) : null
                   
                   return (
                     <div key={q._id} style={{
@@ -264,23 +348,46 @@ function RoomResultsPage() {
                               fontSize: '11px',
                               fontWeight: '600'
                             }}>
-                              {q.points} pts
+                              {q.maxPoints || q.points} pts
                             </span>
+                            {q.answered && (
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                background: q.isCorrect ? '#d1fae5' : '#fee2e2',
+                                color: q.isCorrect ? '#059669' : '#dc2626'
+                              }}>
+                                {q.isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                              </span>
+                            )}
                           </div>
                           <p style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', margin: '0 0 12px' }}>
                             {q.question}
                           </p>
                           
-                          {/* Options with correct answer highlighted */}
+                          {/* Options - show differently for teacher vs student */}
                           <div style={{ display: 'grid', gap: '8px' }}>
                             {q.options && q.options.map((opt, optIdx) => {
                               const isCorrect = opt.isCorrect
+                              const isSelected = q.selectedOption === optIdx
+                              
+                              // For student: highlight their selection. For teacher: highlight correct answer
+                              const showAsSelected = isTeacher ? isCorrect : isSelected
+                              const highlightStyle = showAsSelected 
+                                ? (isTeacher ? '#d1fae5' : (isSelected ? (isCorrect ? '#d1fae5' : '#fee2e2') : '#d1fae5'))
+                                : 'var(--bg-card)'
+                              const borderStyle = showAsSelected 
+                                ? (isTeacher ? '2px solid #059669' : (isSelected ? '2px solid #3b82f6' : '2px solid #059669'))
+                                : '1px solid var(--border-color)'
+                              
                               return (
                                 <div key={optIdx} style={{
                                   padding: '10px 14px',
-                                  background: isCorrect ? '#d1fae5' : 'var(--bg-card)',
+                                  background: highlightStyle,
                                   borderRadius: '8px',
-                                  border: isCorrect ? '2px solid #059669' : '1px solid var(--border-color)',
+                                  border: borderStyle,
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: '12px'
@@ -306,8 +413,14 @@ function RoomResultsPage() {
                                   }}>
                                     {opt.text}
                                   </span>
-                                  {isCorrect && (
-                                    <span style={{ marginLeft: 'auto', color: '#059669', fontSize: '14px' }}>✓ Correct</span>
+                                  {isTeacher && isCorrect && (
+                                    <span style={{ marginLeft: 'auto', color: '#059669', fontSize: '14px' }}>✓</span>
+                                  )}
+                                  {!isTeacher && isSelected && (
+                                    <span style={{ marginLeft: 'auto', color: '#3b82f6', fontSize: '14px' }}>Your answer</span>
+                                  )}
+                                  {!isTeacher && isCorrect && !isSelected && (
+                                    <span style={{ marginLeft: 'auto', color: '#059669', fontSize: '14px' }}>Correct answer</span>
                                   )}
                                 </div>
                               )
@@ -320,15 +433,30 @@ function RoomResultsPage() {
                           minWidth: '120px',
                           textAlign: 'center',
                           padding: '16px',
-                          background: correctRate >= 70 ? '#d1fae5' : correctRate >= 40 ? '#fef3c7' : '#fee2e2',
+                          background: isTeacher 
+                            ? (correctRate >= 70 ? '#d1fae5' : correctRate >= 40 ? '#fef3c7' : '#fee2e2')
+                            : (q.answered ? (q.isCorrect ? '#d1fae5' : '#fee2e2') : '#fef3c7'),
                           borderRadius: '12px'
                         }}>
-                          <div style={{ fontSize: '32px', fontWeight: '700', color: correctRate >= 70 ? '#059669' : correctRate >= 40 ? '#d97706' : '#dc2626' }}>
-                            {correctRate}%
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                            {qStats.totalResponses || 0} responses
-                          </div>
+                          {isTeacher ? (
+                            <>
+                              <div style={{ fontSize: '32px', fontWeight: '700', color: correctRate >= 70 ? '#059669' : correctRate >= 40 ? '#d97706' : '#dc2626' }}>
+                                {correctRate !== null ? `${correctRate}%` : '0%'}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                {qStats.totalResponses || 0} responses
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: '32px', fontWeight: '700', color: q.answered ? (q.isCorrect ? '#059669' : '#dc2626') : '#d97706' }}>
+                                {q.pointsEarned || 0}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                / {q.maxPoints || 100} pts
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -337,24 +465,6 @@ function RoomResultsPage() {
               </div>
             )}
           </div>
-
-          {/* Back Button */}
-          <button
-            onClick={() => navigate('/teacher/room-history')}
-            style={{
-              marginTop: '24px',
-              padding: '12px 24px',
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '10px',
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: 'pointer'
-            }}
-          >
-            ← Back to Room History
-          </button>
         </div>
       </div>
     </div>

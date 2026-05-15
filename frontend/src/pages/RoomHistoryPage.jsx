@@ -14,9 +14,14 @@ function RoomHistoryPage() {
   useEffect(() => {
     if (token) {
       setAuthToken(token)
-      fetchRooms()
+      // Students use dedicated endpoint for their room history
+      if (user?.role === 'student') {
+        useRoomStore.getState().fetchStudentRoomHistory()
+      } else {
+        fetchRooms()
+      }
     }
-  }, [token])
+  }, [token, user?.role])
 
   // Filter ended rooms for teacher view
   const endedRooms = rooms?.filter(r => r.endedAt) || []
@@ -85,7 +90,7 @@ function RoomHistoryPage() {
                     </p>
                   </div>
                   <button
-                    onClick={() => navigate(`/room/${room._id}/results`)}
+                    onClick={() => navigate(`/${user?.role === 'teacher' ? 'teacher' : 'student'}/room/${room._id}/results`)}
                     style={{
                       marginTop: '16px',
                       padding: '10px 16px',

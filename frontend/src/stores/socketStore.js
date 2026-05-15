@@ -90,10 +90,10 @@ export const useSocketStore = create((set, get) => ({
     }
   },
 
-  leaveRoom: (roomCode) => {
+  leaveRoom: (roomCode, userId) => {
     const { socket } = get()
     if (socket) {
-      socket.emit('room:leave', { roomCode })
+      socket.emit('room:leave', { roomCode, userId })
       set({ currentRoom: null, participants: 0 })
     }
   },

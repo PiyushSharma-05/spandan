@@ -9,6 +9,7 @@ import ProfileDropdown from '../components/ProfileDropdown'
 import QuestionApprovalPopup from '../components/QuestionApprovalPopup'
 import CreateQuestionOverlay from '../components/CreateQuestionOverlay'
 import RoomSettingsModal from '../components/RoomSettingsModal'
+import Leaderboard from '../components/Leaderboard'
 import { saveTranscript } from '../services/transcriptService'
 
 function RoomDetailPage() {
@@ -51,6 +52,9 @@ function RoomDetailPage() {
   const [isPopupOpen, setIsPopupOpen] = useState(false)
   const [showCreateQuestion, setShowCreateQuestion] = useState(false)
   const [generatedQuestions, setGeneratedQuestions] = useState([])
+  // Segment pause/resume state
+  const [isSegmentPaused, setIsSegmentPaused] = useState(false)
+  const [segmentTimerValue, setSegmentTimerValue] = useState(0) // frozen value when paused
   const [roomSettings, setRoomSettings] = useState({
     segmentTime: 2,
     questionsPerSegment: 2,
@@ -59,6 +63,8 @@ function RoomDetailPage() {
     timeToAnswer: 30,
     points: 100
   })
+  const [totalParticipants, setTotalParticipants] = useState(0)
+  const [answerCounts, setAnswerCounts] = useState({}) // questionId -> count
 
   useEffect(() => {
     if (token) {
@@ -69,7 +75,7 @@ function RoomDetailPage() {
     
     return () => {
       if (room?.code) {
-        leaveRoom(room.code)
+        leaveRoom(room.code, user?._id)
       }
       stopRecording()
       if (segmentTimerRef.current) {
@@ -88,16 +94,37 @@ function RoomDetailPage() {
   useEffect(() => {
     if (!socket) return
     
-    const handleRoomJoined = () => {
+    const handleRoomJoined = (data) => {
       console.log('Teacher joined room successfully')
       setIsRoomJoined(true)
+      if (data?.participants !== undefined) setTotalParticipants(data.participants)
+    }
+    
+    const handleRoomLeft = (data) => {
+      if (data?.participants !== undefined) setTotalParticipants(data.participants)
     }
     
     socket.on('room:joined', handleRoomJoined)
+    socket.on('room:left', handleRoomLeft)
     
     return () => {
       socket.off('room:joined', handleRoomJoined)
+      socket.off('room:left', handleRoomLeft)
     }
+  }, [socket])
+
+  // Listen for response:new events to update answer counts
+  useEffect(() => {
+    if (!socket) return
+    const handleNewResponse = (data) => {
+      console.log('[DEBUG] New response received:', data)
+      setAnswerCounts(prev => ({
+        ...prev,
+        [data.questionId]: (prev[data.questionId] || 0) + 1
+      }))
+    }
+    socket.on('response:new', handleNewResponse)
+    return () => socket.off('response:new', handleNewResponse)
   }, [socket])
 
   // Auto-scroll transcription
@@ -183,22 +210,23 @@ function RoomDetailPage() {
 
     recognitionRef.current.onend = () => {
       console.log('Speech recognition ended')
-      // Only restart if recording AND popup is not open
-      if (isRecording && !isPopupOpen) {
+      if (isSegmentPaused) {
+        // Timer is paused - don't auto-restart
+        console.log('[TRANSCRIPT] Paused - waiting for popup to close')
+      } else if (isRecording) {
+        // Auto-restart if still recording and not paused
         try {
           recognitionRef.current?.start()
         } catch (e) {
           setIsRecording(false)
           setIsTranscribing(false)
         }
-      } else if (isPopupOpen) {
-        console.log('[TRANSCRIPT] Paused - waiting for popup to close')
       }
     }
   }
 
-  const startSegmentTimer = () => {
-    console.log('[TIMER] startSegmentTimer called, segmentTime:', roomSettings.segmentTime, 'isRecording:', isRecording)
+  const startSegmentTimer = (startFromSeconds = null) => {
+    console.log('[TIMER] startSegmentTimer called, segmentTime:', roomSettings.segmentTime, 'startFrom:', startFromSeconds)
     
     // Clear any existing timer
     if (segmentTimerRef.current) {
@@ -211,11 +239,12 @@ function RoomDetailPage() {
       return
     }
     
-    const totalSeconds = roomSettings.segmentTime * 60
+    const totalSeconds = startFromSeconds !== null ? startFromSeconds : (roomSettings.segmentTime * 60)
     console.log('[TIMER] Starting timer for', totalSeconds, 'seconds')
     
     let secondsLeft = totalSeconds
     setSegmentTimeLeft(secondsLeft)
+    setIsSegmentPaused(false)
 
     console.log('[TIMER] Creating interval for', totalSeconds, 'seconds')
     segmentTimerRef.current = setInterval(() => {
@@ -240,57 +269,76 @@ function RoomDetailPage() {
     }, 1000)
   }
 
+  const pauseSegmentTimer = () => {
+    if (segmentTimerRef.current) {
+      clearInterval(segmentTimerRef.current)
+      segmentTimerRef.current = null
+    }
+    setIsSegmentPaused(true)
+    console.log('[TIMER] Timer paused at', segmentTimeLeft, 'seconds')
+  }
+
+  const resumeSegmentTimer = () => {
+    if (isSegmentPaused && segmentTimeLeft > 0) {
+      console.log('[TIMER] Resuming timer from', segmentTimeLeft, 'seconds')
+      startSegmentTimer(segmentTimeLeft)
+    }
+  }
+
   const generateQuestionsForSegment = async () => {
-    // Stop the timer first
+    // Guard: ensure room is loaded
+    if (!room?._id) {
+      console.error('[GEN] Room not loaded yet, cannot generate questions')
+      return
+    }
+    
+    // STOP the segment timer (this segment's time is up)
     if (segmentTimerRef.current) {
       clearInterval(segmentTimerRef.current)
       segmentTimerRef.current = null
     }
 
-    console.log('[DEBUG] generateQuestionsForSegment called')
-    console.log('[DEBUG] isRecording:', isRecording)
-    console.log('[DEBUG] segmentTime:', roomSettings.segmentTime)
-    console.log('[DEBUG] currentSegment:', currentSegment)
-    console.log('[DEBUG] segmentTranscript length:', segmentTranscript.length)
-    console.log('[DEBUG] transcript length:', transcript.length)
+    console.log('[GEN] Segment timer hit 0, transitioning to next segment')
+    console.log('[GEN] Current segment:', currentSegment)
+    console.log('[GEN] segmentTranscript length:', segmentTranscript.length)
+    console.log('[GEN] transcript (all) length:', transcript.length)
 
-    console.log('[GEN] Starting question generation for segment')
-    
-    // CAPTURE the current transcript BEFORE doing anything else
-    const textToUse = (segmentTranscript.trim() || transcript.trim())
-    console.log('[GEN] Captured transcript length:', textToUse.length)
+    // CAPTURE the current segment's transcript - use segmentTranscript OR fallback to transcript
+    // segmentTranscript gets cleared each segment, transcript accumulates all
+    const textToUse = segmentTranscript.trim() || transcript.trim()
     
     if (!textToUse) {
-      console.log('[GEN] No transcript text, skipping question generation')
-      if (isRecording && roomSettings.segmentTime > 0) {
-        startSegmentTimer()
-      }
-      return
+      console.log('[GEN] No transcript text for current segment, skipping question generation')
     }
-
-    // Now clear everything - including the ref
-    finalTranscriptRef.current = ''
+    
+    // Transition to next segment - timer and transcription continue for next segment
+    const completedSegment = currentSegment
+    const nextSegment = currentSegment + 1
+    setCurrentSegment(nextSegment)
+    
+    // Clear segment transcript for next segment (but NOT the main transcript which accumulates)
     setSegmentTranscript('')
-    setTranscript('')
-    console.log('[GEN] Cleared transcript states')
-
-    const newSegment = currentSegment + 1
-    setCurrentSegment(newSegment)
-    console.log('[GEN] New segment:', newSegment)
+    finalTranscriptRef.current = ''
+    console.log('[GEN] Cleared segment transcript, now on segment', nextSegment)
     
-    // Save transcript to database for analysis
-    try {
-      await saveTranscript(room._id, newSegment, textToUse, roomSettings.segmentTime * 60)
-      console.log('[GEN] Transcript saved to DB')
-    } catch (err) {
-      console.error('[GEN] Failed to save transcript:', err)
+    // Save transcript to database (fire and forget, but handle errors)
+    if (textToUse) {
+      saveTranscript(room._id, completedSegment, textToUse, roomSettings.segmentTime * 60)
+        .then(() => console.log('[GEN] Transcript saved to DB for segment', completedSegment))
+        .catch(err => console.error('[GEN] Failed to save transcript:', err))
+      
+      // Generate questions ASYNC (parallel to next segment transcription)
+      generateQuestionsFromText(textToUse, completedSegment).catch(err => {
+        console.error('[GEN] Question generation failed:', err)
+      })
+      console.log('[GEN] Triggered async question generation for segment', completedSegment)
     }
-
-    // Generate questions from the captured text
-    await generateQuestionsFromText(textToUse, newSegment)
     
-    // DO NOT auto-restart timer - wait for popup to close
-    // Timer will be restarted in onClose handler
+    // Start timer for the new segment IMMEDIATELY
+    if (roomSettings.segmentTime > 0) {
+      startSegmentTimer()
+      console.log('[GEN] Started timer for segment', nextSegment)
+    }
   }
 
   const generateQuestionsFromText = async (text, segmentIndex) => {
@@ -315,8 +363,11 @@ function RoomDetailPage() {
       const data = await response.json()
 
       if (data.success && data.questions && data.questions.length > 0) {
+        // Apply room's default TTA and points to all AI-generated questions
         const markedQuestions = data.questions.map(q => ({
           ...q,
+          timeToAnswer: roomSettings.timeToAnswer,
+          points: roomSettings.points,
           segmentIndex: segmentIndex
         }))
         setPendingQuestions(markedQuestions)
@@ -338,6 +389,13 @@ function RoomDetailPage() {
     try {
       const roomData = await getRoom(roomId)
       setRoom(roomData)
+      // Apply room settings if they exist
+      if (roomData.settings) {
+        setRoomSettings(prev => ({
+          ...prev,
+          ...roomData.settings
+        }))
+      }
       // Load questions for this room from database
       loadQuestions(roomId)
     } catch (err) {
@@ -360,6 +418,16 @@ function RoomDetailPage() {
           setGeneratedQuestions(data.questions)
         }
       }
+      // Also load answer counts
+      const countsRes = await fetch(`/api/responses/counts/${rid}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (countsRes.ok) {
+        const countsData = await countsRes.json()
+        if (countsData.counts) {
+          setAnswerCounts(countsData.counts)
+        }
+      }
     } catch (err) {
       console.error('Failed to load questions:', err)
     }
@@ -374,6 +442,7 @@ function RoomDetailPage() {
         endedAt: new Date()
       })
       setRoom(updated)
+      navigate(`/teacher/room/${room._id}/results`)
     } catch (err) {
       setError(err.message)
     }
@@ -465,6 +534,8 @@ function RoomDetailPage() {
           options: question.options,
           explanation: question.explanation,
           segmentIndex: question.segmentIndex,
+          timeToAnswer: question.timeToAnswer || roomSettings.timeToAnswer || 30,
+          points: question.points || roomSettings.points || 100,
           status: 'approved'
         })
       })
@@ -740,8 +811,21 @@ function RoomDetailPage() {
                 isOpen={showSettings}
                 onClose={() => setShowSettings(false)}
                 settings={roomSettings}
-                onSave={(newSettings) => {
+                onSave={async (newSettings) => {
                   setRoomSettings(newSettings)
+                  // Persist settings to backend
+                  try {
+                    await fetch(`/api/rooms/${room._id}`, {
+                      method: 'PUT',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                      },
+                      body: JSON.stringify({ settings: newSettings })
+                    })
+                  } catch (err) {
+                    console.error('Failed to save room settings:', err)
+                  }
                   setShowSettings(false)
                 }}
               />
@@ -852,6 +936,18 @@ function RoomDetailPage() {
               }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Provider:</span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{roomSettings.questionProvider || 'minimax'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Time/Answer:</span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{roomSettings.timeToAnswer}s</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Points:</span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{roomSettings.points}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ color: 'var(--text-secondary)' }}>Segment Time:</span>
                     <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{roomSettings.segmentTime} min</span>
                   </div>
@@ -862,10 +958,6 @@ function RoomDetailPage() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ color: 'var(--text-secondary)' }}>Difficulty:</span>
                     <span style={{ color: 'var(--text-primary)', fontWeight: '600', textTransform: 'capitalize' }}>{roomSettings.difficulty}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Model:</span>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{roomSettings.ollamaModel}</span>
                   </div>
                 </div>
               </div>
@@ -954,12 +1046,10 @@ function RoomDetailPage() {
             </div>
           </div>
 
-          {/* Third Row - Generated Questions */}
-          <div style={{
-            background: 'var(--bg-card)',
-            borderRadius: '16px',
-            padding: '20px'
-          }}>
+          {/* Third Row - Session Questions (70%) + Leaderboard (30%) */}
+          <div style={{ display: 'flex', gap: '16px' }}>
+            {/* Session Questions - 70% */}
+            <div style={{ flex: '0 0 70%', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
               <span style={{ fontSize: '20px' }}>📝</span>
               <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
@@ -1018,26 +1108,73 @@ function RoomDetailPage() {
                         }}>
                           {q.type}
                         </span>
-                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-                          Segment {q.segmentIndex || 0}
+                        <span style={{
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: '600',
+                          background: '#fef3c7',
+                          color: '#92400e'
+                        }}>
+                          {q.points || 100} pts
                         </span>
                       </div>
-                      <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)', lineHeight: '1.5' }}>
+                      <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: 'var(--text-primary)', lineHeight: '1.5', fontWeight: '500' }}>
                         {q.question}
                       </p>
-                      <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {q.options?.filter(o => o.isCorrect).map((opt, i) => (
-                          <span key={i} style={{
-                            padding: '2px 8px',
-                            background: '#d1fae5',
-                            color: '#059669',
-                            borderRadius: '4px',
-                            fontSize: '11px'
-                          }}>
-                            ✓ {opt.text}
-                          </span>
-                        ))}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(q.options || []).map((opt, optIdx) => {
+                          const letter = String.fromCharCode(65 + optIdx)
+                          return (
+                            <div key={optIdx} style={{
+                              padding: '8px 12px',
+                              background: opt.isCorrect ? '#d1fae5' : 'var(--bg-secondary)',
+                              border: `2px solid ${opt.isCorrect ? '#059669' : 'var(--border-color)'}`,
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '13px',
+                              color: opt.isCorrect ? '#059669' : 'var(--text-primary)'
+                            }}>
+                              <span style={{
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '50%',
+                                background: opt.isCorrect ? '#059669' : 'var(--border-color)',
+                                color: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                flexShrink: 0
+                              }}>
+                                {letter}
+                              </span>
+                              <span style={{ fontWeight: opt.isCorrect ? '600' : '400' }}>
+                                {opt.text}
+                              </span>
+                              {opt.isCorrect && (
+                                <span style={{ marginLeft: 'auto', fontSize: '12px' }}>✓</span>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', marginLeft: '8px' }}>
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        background: (answerCounts[q._id] || 0) > 0 ? '#d1fae5' : '#fef3c7',
+                        color: (answerCounts[q._id] || 0) > 0 ? '#059669' : '#92400e'
+                      }}>
+                        {answerCounts[q._id] || 0}/{totalParticipants}
+                      </span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>answered</span>
                     </div>
                   </div>
                 ))}
@@ -1052,6 +1189,17 @@ function RoomDetailPage() {
                 No questions generated yet. Start recording to auto-generate questions.
               </div>
             )}
+            </div>
+            {/* Leaderboard - 30% */}
+            <div style={{ flex: '0 0 30%', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <span style={{ fontSize: '20px' }}>🏆</span>
+                <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                  Leaderboard
+                </span>
+              </div>
+              <Leaderboard roomId={room?._id} token={token} socket={socket} />
+            </div>
           </div>
         </div>
       </div>
@@ -1063,11 +1211,31 @@ function RoomDetailPage() {
           onApprove={handleApproveQuestion}
           onReject={handleRejectQuestion}
           onClose={() => {
+            // Close popup
             setShowQuestionPopup(false)
             setIsPopupOpen(false)
-            // Restart timer if still recording
-            if (isRecording && roomSettings.segmentTime > 0) {
-              startSegmentTimer()
+            
+            // PAUSE transcription (don't stop completely, just pause)
+            if (recognitionRef.current) {
+              try {
+                recognitionRef.current.stop()
+              } catch (e) {}
+            }
+            setIsTranscribing(false)
+            
+            // PAUSE segment timer (freeze at current value)
+            pauseSegmentTimer()
+            
+            // Resume transcription for current segment
+            if (isRecording && recognitionRef.current) {
+              try {
+                finalTranscriptRef.current = ''
+                recognitionRef.current.start()
+                setIsTranscribing(true)
+                setModelStatus('Listening...')
+              } catch (error) {
+                console.error('Error resuming transcription:', error)
+              }
             }
           }}
         />

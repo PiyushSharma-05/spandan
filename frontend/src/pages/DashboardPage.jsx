@@ -308,7 +308,7 @@ function DashboardPage() {
                       </p>
                     </div>
                     <button
-                      onClick={() => navigate(`/room/${room._id}`)}
+                      onClick={() => navigate(`/teacher/room/${room._id}`)}
                       style={{
                         marginTop: '16px',
                         padding: '10px 16px',

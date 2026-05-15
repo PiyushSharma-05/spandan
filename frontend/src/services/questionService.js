@@ -3,7 +3,10 @@ import useAuthStore from '../stores/authStore'
 
 // Get available AI providers
 export const getAIProviders = async () => {
-  const response = await fetch('/api/questions/providers')
+  const token = useAuthStore.getState().token
+  const response = await fetch('/api/questions/providers', {
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+  })
   const data = await response.json()
   return data
 }

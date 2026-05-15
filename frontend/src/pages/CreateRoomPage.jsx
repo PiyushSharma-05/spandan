@@ -33,7 +33,7 @@ function CreateRoomPage() {
     
     try {
       const room = await createRoom(roomName.trim())
-      navigate(`/room/${room._id}`)
+      navigate(`/teacher/room/${room._id}`)
     } catch (err) {
       setError(err.message || 'Failed to create room')
     } finally {

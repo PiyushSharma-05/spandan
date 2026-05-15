@@ -1,5 +1,5 @@
 import express from 'express'
-import { createRoom, getRoomById, getRoomByCode, getRoomsByTeacher, updateRoom, deleteRoom } from '../services/roomService.js'
+import { createRoom, getRoomById, getRoomByCode, getRoomsByTeacher, getRoomsByStudent, updateRoom, deleteRoom } from '../services/roomService.js'
 import { authenticate } from '../middleware/auth.js'
 import { authorize } from '../middleware/auth.js'
 import { validate, createRoomSchema } from '../middleware/validation.js'
@@ -39,9 +39,14 @@ router.get('/', authenticate, async (req, res) => {
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const room = await getRoomById(req.params.id)
+    const RoomMember = (await import('../models/RoomMember.js')).default
     
-    // Check if user is the room teacher or has access
-    if (room.teacher._id.toString() !== req.user._id.toString() && req.user.role !== 'teacher') {
+    // Check if user is the room teacher (owner) or a student member
+    const isOwner = room.teacher._id.toString() === req.user._id.toString()
+    const isStudentMember = await RoomMember.findOne({ roomId: req.params.id, studentId: req.user._id })
+    
+    // Only the room owner OR room members can access
+    if (!isOwner && !isStudentMember) {
       return res.status(403).json({ error: 'Access denied' })
     }
     
@@ -69,6 +74,16 @@ router.get('/join/:code', authenticate, authorize('student'), async (req, res) =
   }
 })
 
+// Get rooms student has attended (for room history)
+router.get('/student/room-history', authenticate, authorize('student'), async (req, res) => {
+  try {
+    const rooms = await getRoomsByStudent(req.user._id)
+    res.json({ rooms })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // Update room
 router.put('/:id', authenticate, authorize('teacher'), async (req, res) => {
   try {
@@ -84,6 +99,13 @@ router.put('/:id', authenticate, authorize('teacher'), async (req, res) => {
     }
 
     const updatedRoom = await updateRoom(req.params.id, req.body)
+    
+    // If room is being ended, emit socket event to notify all participants
+    if (req.body.isActive === false && updatedRoom.endedAt) {
+      const io = req.app.get('io')
+      io.to(room.code).emit('room:ended', { roomId: room._id, endedAt: updatedRoom.endedAt })
+    }
+    
     res.json({ message: 'Room updated successfully', room: updatedRoom })
   } catch (error) {
     const status = error.message === 'Room not found' ? 404 : 500

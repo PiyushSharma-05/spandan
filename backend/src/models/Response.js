@@ -20,6 +20,10 @@ const responseSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  selectedOptions: {
+    type: [Number], // Array for MSQ - stores all selected option indices
+    default: []
+  },
   isCorrect: {
     type: Boolean,
     default: false

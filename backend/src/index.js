@@ -29,6 +29,9 @@ const io = new Server(httpServer, {
   }
 })
 
+// Make io accessible to routes
+app.set('io', io)
+
 // Rate limiting
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -89,24 +92,87 @@ io.on('connection', (socket) => {
   })
 
   // Join room
-  socket.on('room:join', ({ roomCode, userId }) => {
-    socket.join(roomCode)
-    console.log(`Client ${socket.id} (user: ${userId}) joined room ${roomCode}`)
-    io.to(roomCode).emit('room:joined', { 
-      roomCode, 
-      userId,
-      participants: io.sockets.adapter.rooms.get(roomCode)?.size || 0 
-    })
+  socket.on('room:join', async ({ roomCode, userId }) => {
+    try {
+      const Room = (await import('./models/Room.js')).default
+      const User = (await import('./models/User.js')).default
+      const RoomMember = (await import('./models/RoomMember.js')).default
+      
+      socket.join(roomCode)
+      console.log(`Client ${socket.id} (user: ${userId}) joining room ${roomCode}`)
+      
+      // Find user and room
+      const user = await User.findById(userId)
+      const room = await Room.findByCode(roomCode)
+      
+      let participantCount = 0
+      
+      if (user && room) {
+        // Only students get added to RoomMember (not teachers)
+        if (user.role === 'student') {
+          // Upsert: add student to room members if not already there
+          await RoomMember.findOneAndUpdate(
+            { roomId: room._id, studentId: user._id },
+            { roomId: room._id, studentId: user._id, joinedAt: new Date() },
+            { upsert: true, new: true }
+          )
+          console.log(`Student ${userId} added to room members for room ${roomCode}`)
+        }
+        
+        // Count participants from RoomMember (excludes teacher)
+        const memberCount = await RoomMember.countDocuments({ roomId: room._id })
+        participantCount = memberCount
+      }
+      
+      io.to(roomCode).emit('room:joined', { 
+        roomCode, 
+        userId,
+        participants: participantCount 
+      })
+    } catch (error) {
+      console.error('Error in room:join:', error)
+      io.to(roomCode).emit('room:joined', { 
+        roomCode, 
+        userId,
+        participants: 0 
+      })
+    }
   })
 
   // Leave room
-  socket.on('room:leave', ({ roomCode }) => {
-    socket.leave(roomCode)
-    console.log(`Client ${socket.id} left room ${roomCode}`)
-    io.to(roomCode).emit('room:left', { 
-      roomCode,
-      participants: io.sockets.adapter.rooms.get(roomCode)?.size || 0 
-    })
+  socket.on('room:leave', async ({ roomCode, userId }) => {
+    try {
+      const Room = (await import('./models/Room.js')).default
+      const User = (await import('./models/User.js')).default
+      const RoomMember = (await import('./models/RoomMember.js')).default
+      
+      socket.leave(roomCode)
+      console.log(`Client ${socket.id} (user: ${userId}) left room ${roomCode}`)
+      
+      const user = await User.findById(userId)
+      const room = await Room.findByCode(roomCode)
+      
+      let participantCount = 0
+      
+      if (user && room && user.role === 'student') {
+        // Remove student from room members
+        await RoomMember.deleteOne({ roomId: room._id, studentId: user._id })
+        
+        // Recount remaining participants
+        participantCount = await RoomMember.countDocuments({ roomId: room._id })
+      }
+      
+      io.to(roomCode).emit('room:left', { 
+        roomCode,
+        participants: participantCount 
+      })
+    } catch (error) {
+      console.error('Error in room:leave:', error)
+      io.to(roomCode).emit('room:left', { 
+        roomCode,
+        participants: 0 
+      })
+    }
   })
 
   // Submit response (real-time)
@@ -116,6 +182,16 @@ io.on('connection', (socket) => {
       studentId: data.studentId,
       selectedOption: data.selectedOption,
       responseTime: data.responseTime
+    })
+  })
+
+  // Points update event (emitted after response is saved with calculated points)
+  socket.on('points:update', (data) => {
+    io.to(data.roomCode).emit('points:updated', {
+      questionId: data.questionId,
+      studentId: data.studentId,
+      points: data.points,
+      isCorrect: data.isCorrect
     })
   })
 
