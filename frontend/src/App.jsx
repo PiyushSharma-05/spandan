@@ -49,7 +49,7 @@ function App() {
   }, [isDark])
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename='/spandan'>
       <Routes>
         <Route path="/" element={<AuthPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
