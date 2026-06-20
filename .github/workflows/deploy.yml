@@ -54,6 +54,23 @@ jobs:
               --format=dotenv \
               | grep "^VITE_" > frontend/.env
 
+
+            echo "==> Writing backend .env from Infisical..."
+
+            npx @infisical/cli@0.43.40 export \
+              --token="$INFISICAL_TOKEN" \
+              --projectId="${{ secrets.INFISICAL_PROJECT_ID }}" \
+              --env="${{ env.INFISICAL_ENVIRONMENT }}" \
+              --path="${{ env.INFISICAL_SECRET_PATH }}" \
+              --format=dotenv \
+              | grep -v "^VITE_" > backend/.env
+
+
+            echo "==> Cleaning quotes from env files..."
+
+            sed -i "s/='\(.*\)'/=\1/; s/=\"\(.*\)\"/=\1/" frontend/.env backend/.env
+
+
             echo "==> Installing frontend dependencies..."
             cd frontend
             npm install
