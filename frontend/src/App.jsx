@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import useThemeStore from './stores/themeStore'
 import useAuthStore from './stores/authStore'
 import useSocketStore from './stores/socketStore'
@@ -23,7 +23,6 @@ function App() {
   const { token, isAuthenticated, setAuth } = useAuthStore()
   const { connect, disconnect } = useSocketStore()
   const [samagamaChecked, setSamagamaChecked] = useState(false)
-  const navigate = useNavigate()
 
   // Check for Samagama session on app load
   useEffect(() => {
@@ -35,12 +34,11 @@ function App() {
         const samagamaToken = localStorage.getItem('samagama_auth_token')
 
         if (!samagamaToken) {
-          // No token in localStorage — show normal auth page
           setSamagamaChecked(true)
           return
         }
 
-        // Call Samagama's auth/me endpoint with Bearer token from localStorage
+        // Call Samagama's auth/me endpoint with Bearer token
         const response = await fetch('https://samagama.in/api/auth/me', {
           method: 'GET',
           headers: {
@@ -50,7 +48,6 @@ function App() {
         })
 
         if (!response.ok) {
-          // Token invalid/expired — show normal auth page
           setSamagamaChecked(true)
           return
         }
@@ -63,7 +60,7 @@ function App() {
           return
         }
 
-        // Got valid Samagama user — send to Spandan backend for auto-provisioning
+        // Send user data to Spandan backend for auto-provisioning
         const spandanResponse = await fetch(`${API_URL}/auth/samagama-auto-login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -82,14 +79,12 @@ function App() {
 
         const spandanData = await spandanResponse.json()
 
-        // Set auth state and redirect to correct dashboard
+        // Set auth state
         setAuth(spandanData.user, spandanData.token)
 
-        if (spandanData.user.role === 'teacher') {
-          navigate('/teacher')
-        } else {
-          navigate('/student')
-        }
+        // Redirect to correct dashboard using window.location
+        const dashboard = spandanData.user.role === 'teacher' ? '/teacher' : '/student'
+        window.location.href = `${window.location.origin}/spandan${dashboard}`
       } catch (error) {
         console.error('Samagama session check failed:', error)
       } finally {
@@ -98,7 +93,7 @@ function App() {
     }
 
     checkSamagamaSession()
-  }, [isAuthenticated, samagamaChecked, setAuth, navigate])
+  }, [isAuthenticated, samagamaChecked, setAuth])
 
   // Connect socket when user is authenticated with valid token
   useEffect(() => {
