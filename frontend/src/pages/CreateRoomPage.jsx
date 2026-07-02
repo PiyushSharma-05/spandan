@@ -13,6 +13,9 @@ function CreateRoomPage() {
   const { createRoom, setAuthToken } = useRoomStore()
   
   const [roomName, setRoomName] = useState('')
+  const [teamsEnabled, setTeamsEnabled] = useState(false)
+  const [numberOfTeams, setNumberOfTeams] = useState(2)
+  const [teamFormation, setTeamFormation] = useState('random')
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
 
@@ -32,7 +35,14 @@ function CreateRoomPage() {
     setError('')
     
     try {
-      const room = await createRoom(roomName.trim())
+      const settings = {
+        teamsEnabled: teamsEnabled,
+        teamSettings: teamsEnabled ? {
+          numberOfTeams: numberOfTeams,
+          teamFormation: teamFormation
+        } : {}
+      }
+      const room = await createRoom(roomName.trim(), settings)
       navigate(`/teacher/room/${room._id}`)
     } catch (err) {
       setError(err.message || 'Failed to create room')
@@ -139,6 +149,111 @@ function CreateRoomPage() {
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && handleCreateRoom()}
               />
+            </div>
+
+            {/* Teams Section */}
+            <div style={{ 
+              marginBottom: '24px',
+              padding: '16px',
+              background: 'var(--bg-primary)',
+              borderRadius: '10px',
+              border: '1px solid var(--border-color)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={teamsEnabled}
+                    onChange={(e) => setTeamsEnabled(e.target.checked)}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      cursor: 'pointer'
+                    }}
+                  />
+                  👥 Enable Team Mode
+                </label>
+              </div>
+
+              {teamsEnabled && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: 'var(--text-primary)',
+                      marginBottom: '6px'
+                    }}>
+                      Number of Teams
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={numberOfTeams}
+                      onChange={(e) => setNumberOfTeams(parseInt(e.target.value) || 2)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        background: 'var(--input-bg)',
+                        color: 'var(--text-primary)',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: 'var(--text-primary)',
+                      marginBottom: '6px'
+                    }}>
+                      Team Formation
+                    </label>
+                    <select
+                      value={teamFormation}
+                      onChange={(e) => setTeamFormation(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        background: 'var(--input-bg)',
+                        color: 'var(--text-primary)',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="random">🔀 Random Assignment</option>
+                      <option value="manual">✋ Manual Assignment</option>
+                    </select>
+                  </div>
+
+                  <p style={{
+                    fontSize: '12px',
+                    color: 'var(--text-secondary)',
+                    margin: '8px 0 0',
+                    lineHeight: '1.4'
+                  }}>
+                    📌 With team mode enabled, students will be divided into teams. Teams answer questions together using majority voting!
+                  </p>
+                </div>
+              )}
             </div>
             
             <div style={{ display: 'flex', gap: '12px' }}>

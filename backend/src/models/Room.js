@@ -43,6 +43,13 @@ const roomSchema = new mongoose.Schema({
       MCQ: { type: Number, default: 50 },
       TF: { type: Number, default: 30 },
       MSQ: { type: Number, default: 20 }
+    },
+    // Team settings
+    teamsEnabled: { type: Boolean, default: false },
+    teamSettings: {
+      numberOfTeams: { type: Number, default: 0 },
+      peoplePerTeam: { type: Number, default: 0 },
+      teamFormation: { type: String, enum: ['manual', 'random'], default: 'manual' }
     }
   }
 }, {

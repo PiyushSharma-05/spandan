@@ -12,6 +12,8 @@ import CreateQuestionOverlay from '../components/CreateQuestionOverlay'
 import TextToQuestionsPopup from '../components/TextToQuestionsPopup'
 import RoomSettingsModal from '../components/RoomSettingsModal'
 import Leaderboard from '../components/Leaderboard'
+import TeamSetup from '../components/TeamSetup'
+import TeamLeaderboard from '../components/TeamLeaderboard'
 import { saveTranscript } from '../services/transcriptService'
 import { transcribeAudio, getTranscriptionStatus, convertWebMToWav } from '../services/serverTranscriptionService'
 import { API_URL } from '../config.js'
@@ -1581,16 +1583,48 @@ function RoomDetailPage() {
               </div>
             )}
             </div>
-            {/* Leaderboard - flexible width */}
-            <div style={{ flex: '1 1 calc(30% - 10px)', minWidth: '280px', maxWidth: '100%', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px', boxSizing: 'border-box', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                <span style={{ fontSize: '20px' }}>🏆</span>
-                <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                  Leaderboard
-                </span>
+
+            {/* Teams Section - Show if teams enabled */}
+            {room?.settings?.teamsEnabled && (
+              <div style={{ flex: '1 1 calc(30% - 10px)', minWidth: '280px', maxWidth: '100%', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px', boxSizing: 'border-box', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <span style={{ fontSize: '20px' }}>👥</span>
+                  <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                    Teams
+                  </span>
+                </div>
+                <TeamSetup roomId={room?._id} onTeamsCreated={() => {
+                  // Refresh room data after teams created
+                  getRoom(roomId)
+                }} />
               </div>
-              <Leaderboard roomId={room?._id} token={token} socket={socket} />
-            </div>
+            )}
+
+            {/* Team Leaderboard - Show if teams enabled */}
+            {room?.settings?.teamsEnabled && (
+              <div style={{ flex: '1 1 calc(30% - 10px)', minWidth: '280px', maxWidth: '100%', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px', boxSizing: 'border-box', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <span style={{ fontSize: '20px' }}>🏅</span>
+                  <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                    Team Leaderboard
+                  </span>
+                </div>
+                <TeamLeaderboard roomId={room?._id} />
+              </div>
+            )}
+
+            {/* Regular Leaderboard - Show if not team mode or in addition to team leaderboard */}
+            {!room?.settings?.teamsEnabled && (
+              <div style={{ flex: '1 1 calc(30% - 10px)', minWidth: '280px', maxWidth: '100%', background: 'var(--bg-card)', borderRadius: '16px', padding: '20px', boxSizing: 'border-box', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                  <span style={{ fontSize: '20px' }}>🏆</span>
+                  <span style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                    Leaderboard
+                  </span>
+                </div>
+                <Leaderboard roomId={room?._id} token={token} socket={socket} />
+              </div>
+            )}
           </div>
         </div>
       </div>

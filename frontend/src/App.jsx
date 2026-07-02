@@ -122,7 +122,7 @@ function App() {
   }, [isDark])
 
   return (
-    <BrowserRouter basename="/spandan">
+    <BrowserRouter basename={process.env.NODE_ENV === 'production' ? '/spandan' : '/'}>
       <Routes>
         <Route path="/" element={<AuthPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />

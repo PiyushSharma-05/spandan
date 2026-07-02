@@ -400,6 +400,125 @@ function RoomSettingsModal({ isOpen, onClose, settings, onSave }) {
           </div>
         </div>
 
+        {/* Team Settings */}
+        <div style={{ 
+          marginBottom: '24px',
+          padding: '16px',
+          background: 'var(--bg-primary)',
+          borderRadius: '10px',
+          border: '1px solid var(--border-color)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: 'var(--text-primary)',
+              cursor: 'pointer'
+            }}>
+              <input
+                type="checkbox"
+                checked={localSettings.teamsEnabled || false}
+                onChange={(e) => setLocalSettings(prev => ({ 
+                  ...prev, 
+                  teamsEnabled: e.target.checked 
+                }))}
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  cursor: 'pointer'
+                }}
+              />
+              👥 Enable Team Mode
+            </label>
+          </div>
+
+          {(localSettings.teamsEnabled || false) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: 'var(--text-primary)',
+                  marginBottom: '5px'
+                }}>
+                  Number of Teams
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={localSettings.teamSettings?.numberOfTeams || 2}
+                  onChange={(e) => setLocalSettings(prev => ({
+                    ...prev,
+                    teamSettings: {
+                      ...prev.teamSettings,
+                      numberOfTeams: parseInt(e.target.value) || 2
+                    }
+                  }))}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: 'var(--text-primary)',
+                  marginBottom: '5px'
+                }}>
+                  Team Formation
+                </label>
+                <select
+                  value={localSettings.teamSettings?.teamFormation || 'manual'}
+                  onChange={(e) => setLocalSettings(prev => ({
+                    ...prev,
+                    teamSettings: {
+                      ...prev.teamSettings,
+                      teamFormation: e.target.value
+                    }
+                  }))}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text-primary)',
+                    boxSizing: 'border-box',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="random">🔀 Random</option>
+                  <option value="manual">✋ Manual</option>
+                </select>
+              </div>
+
+              <p style={{
+                fontSize: '11px',
+                color: 'var(--text-secondary)',
+                margin: '6px 0 0'
+              }}>
+                Teams answer using majority voting
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Save Button */}
         <button
           onClick={handleSave}

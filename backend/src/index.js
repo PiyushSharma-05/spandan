@@ -15,6 +15,11 @@ import questionRoutes from './routes/questions.js'
 import transcriptionRoutes from './routes/transcription.js'
 import transcriptRoutes from './routes/transcripts.js'
 import responseRoutes from './routes/responses.js'
+import teamRoutes from './routes/teams.js'
+import teamResponseRoutes from './routes/team-responses.js'
+
+// Import services
+import { setupTeamEvents } from './services/teamService.js'
 
 // Import models for reference
 import './models/index.js'
@@ -116,6 +121,8 @@ app.use('/api/questions', questionRoutes)
 app.use('/api/transcription', transcriptionRoutes)
 app.use('/api/transcripts', transcriptRoutes)
 app.use('/api/responses', responseRoutes)
+app.use('/api/teams', teamRoutes)
+app.use('/api/team-responses', teamResponseRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -151,6 +158,9 @@ io.on('connection', (socket) => {
       }
     }
   })
+
+  // Setup team-based events
+  setupTeamEvents(io, socket)
 
   // Join room
   socket.on('room:join', async ({ roomCode, userId }) => {
